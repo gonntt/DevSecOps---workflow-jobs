@@ -1,0 +1,38 @@
+name: Job - Databricks Deploy
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      # 1. Login no Azure SEM SENHA (usando o token dinâmico do GitHub OIDC)
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }} # Variável pública, não é secret
+          tenant-id: ${{ vars.AZURE_TENANT_ID }} # Variável pública
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }} # Variável pública
+
+      # 2. Instala o CLI
+      - name: Setup Databricks CLI
+        uses: caixagithub/DevSecOps-Actions/.github/integrations/databricks/
+        with:
+          cli_version: '0.219.0'
+
+      # 3. Faz o deploy (O CLI usa o token efêmero do Azure Login)
+      - name: Deploy Databricks Bundle
+        env:
+          # O CLI precisa saber para onde apontar, mas a credencial ele puxa do 'azure/login'
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }} 
+        run: |
+          databricks bundle deploy -t prd

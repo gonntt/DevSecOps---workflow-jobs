@@ -1,0 +1,23 @@
+name: Job - SQL CI
+on:
+  workflow_call:
+
+jobs:
+  validate-sql:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Instalar SQLFluff
+        # Fixando a versão identificada nos vossos requirements
+        run: pip install sqlfluff==2.3.*
+
+      - name: Validar Sintaxe SQL
+        # Pode apontar para um .sqlfluff corporativo nos vossos templates no futuro
+        run: sqlfluff lint src/sql/ --dialect sparksql

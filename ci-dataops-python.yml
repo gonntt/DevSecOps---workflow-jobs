@@ -1,0 +1,30 @@
+name: Job - Python CI
+on:
+  workflow_call:
+
+jobs:
+  validate-python:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Instalar Dependências
+        run: pip install -r requirements.txt
+
+      - name: Ruff Check (Linting)
+        run: ruff check src/
+
+      - name: Mypy (Type Checking)
+        run: mypy src/ --ignore-missing-imports
+
+      - name: Pytest com Coverage
+        run: |
+          coverage run -m pytest tests/
+          coverage report --fail-under=80
