@@ -2,7 +2,17 @@ name: Job - Databricks Deploy via Key Vault (OIDC)
 on:
   workflow_call:
     inputs:
+      inputs:
       environment:
+        required: true
+        type: string
+      keyvault_name:
+        required: true
+        type: string
+      secret_client_id_name:
+        required: true
+        type: string
+      secret_client_secret_name:
         required: true
         type: string
 
@@ -12,42 +22,37 @@ jobs:
     environment: ${{ inputs.environment }}
     
     permissions:
-      id-token: write # Necessário para o fluxo OIDC da imagem
+      id-token: write
       contents: read
 
     steps:
-      - name: Checkout repositório
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      # 1. Autenticação OIDC (Passo 1 a 3 da imagem)
-      - name: Azure Login via OIDC
+      # 1. Login no Azure (As vars vêm automaticamente do environment 'nprd' do GitHub)
+      - name: Azure Login
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      # 2. Busca de Segredos no Key Vault (Passo 4 e 5 da imagem)
-      # Esta action substitui o plugin do CoE e funciona nativamente com OIDC
+      # 2. PUXA OS VALORES USANDO AS INFORMAÇÕES PASSADAS PELO DESENVOLVEDOR
       - name: Get Secrets from Key Vault
         uses: Azure/get-keyvault-secrets@v1
         with:
-          keyvault: "kv-dataops-${{ inputs.environment }}"
-          # Aqui você lista os nomes das chaves como estão no Key Vault
-          secrets: 'databricks-sp-client-id, databricks-sp-client-secret'
+          keyvault: ${{ inputs.keyvault_name }}
+          secrets: '${{ inputs.secret_client_id_name }}, ${{ inputs.secret_client_secret_name }}'
         id: kv-secrets
 
       - name: Setup Databricks CLI
-        uses: caixagithub/DevSecOps-Actions/.github/integrations/databricks/
-        with:
-          cli_version: '0.219.0'
+        uses: gonntt/devsecops---actions/.github/integrations/databricks@main
 
-      # 3. Deploy (Usando os segredos buscados em memória)
-      - name: Executar Databricks Bundle Deploy
+      # 3. Injeta no Deploy lendo as saídas dinâmicas do step acima
+      - name: Databricks Bundle Deploy
         env:
           DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-          # Os valores vêm da saída do step 'kv-secrets'
-          DATABRICKS_CLIENT_ID: ${{ steps.kv-secrets.outputs.databricks-sp-client-id }}
-          DATABRICKS_CLIENT_SECRET: ${{ steps.kv-secrets.outputs.databricks-sp-client-secret }}
+          DATABRICKS_CLIENT_ID: ${{ steps.kv-secrets.outputs[inputs.secret_client_id_name] }}
+          DATABRICKS_CLIENT_SECRET: ${{ steps.kv-secrets.outputs[inputs.secret_client_secret_name] }}
         run: |
           databricks bundle deploy -t ${{ inputs.environment }}
