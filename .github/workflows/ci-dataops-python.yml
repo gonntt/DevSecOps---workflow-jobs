@@ -28,18 +28,12 @@ jobs:
       - name: Ruff Check (Linting)
         run: |
           if [ -d "src" ]; then
-            echo "Pasta src/ encontrada. Executando Ruff..."
+            echo "Pasta src/ encontrada. Executando Ruff padrão..."
             ruff check src/
           elif [ -d "notebooks" ]; then
-            echo "Pasta notebooks/ encontrada. Executando Ruff..."
-            
-            # Se o pyproject.toml existir na raiz, força o Ruff a usá-lo explicitamente
-            if [ -f "pyproject.toml" ]; then
-              ruff check notebooks/ --config pyproject.toml
-            else
-              ruff check notebooks/
-            fi
-            
+            echo "Pasta notebooks/ encontrada. Ignorando variáveis nativas do Databricks..."
+            # Força o Ruff a ignorar o erro F821 (Undefined name) apenas nos notebooks do Databricks
+            ruff check notebooks/ --ignore F821
           else
             echo "⚠️ Nenhuma pasta de código (src/ ou notebooks/) encontrada. Pulando Linting."
           fi
