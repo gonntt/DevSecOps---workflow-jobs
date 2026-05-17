@@ -32,7 +32,14 @@ jobs:
             ruff check src/
           elif [ -d "notebooks" ]; then
             echo "Pasta notebooks/ encontrada. Executando Ruff..."
-            ruff check notebooks/
+            
+            # Se o pyproject.toml existir na raiz, força o Ruff a usá-lo explicitamente
+            if [ -f "pyproject.toml" ]; then
+              ruff check notebooks/ --config pyproject.toml
+            else
+              ruff check notebooks/
+            fi
+            
           else
             echo "⚠️ Nenhuma pasta de código (src/ ou notebooks/) encontrada. Pulando Linting."
           fi
