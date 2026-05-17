@@ -41,11 +41,12 @@ jobs:
       - name: Mypy (Type Checking)
         run: |
           if [ -d "src" ]; then
-            echo "Pasta src/ encontrada. Executando Mypy..."
+            echo "Pasta src/ encontrada. Executando Mypy padrão..."
             mypy src/ --ignore-missing-imports
           elif [ -d "notebooks" ]; then
-            echo "Pasta notebooks/ encontrada. Executando Mypy..."
-            mypy notebooks/ --ignore-missing-imports
+            echo "Pasta notebooks/ encontrada. Ignorando checagem de globais nativos do Databricks..."
+            # --disable-error-code name-defined evita os falsos-positivos de spark, dbutils e display
+            mypy notebooks/ --ignore-missing-imports --disable-error-code name-defined
           else
             echo "⚠️ Nenhuma pasta de código encontrada. Pulando Type Checking."
           fi
