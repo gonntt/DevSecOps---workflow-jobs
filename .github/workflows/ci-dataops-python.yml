@@ -29,11 +29,11 @@ jobs:
         run: |
           if [ -d "src" ]; then
             echo "Pasta src/ encontrada. Executando Ruff..."
-            ruff check src/ --global dbutils,spark,display
+            ruff check src/ --builtins dbutils,spark,display
           elif [ -d "notebooks" ]; then
             echo "Pasta notebooks/ encontrada. Executando Ruff..."
-            # Adicionado globais para não quebrar com objetos nativos do Databricks
-            ruff check notebooks/ --global dbutils,spark,display
+            # Injeta as variáveis nativas do Databricks como builtins conhecidos pelo Ruff
+            ruff check notebooks/ --builtins dbutils,spark,display
           else
             echo "⚠️ Nenhuma pasta de código (src/ ou notebooks/) encontrada. Pulando Linting."
           fi
