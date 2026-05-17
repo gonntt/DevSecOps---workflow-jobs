@@ -2,7 +2,6 @@ name: Job - Databricks Deploy via Key Vault (OIDC)
 on:
   workflow_call:
     inputs:
-      inputs:
       environment:
         required: true
         type: string
