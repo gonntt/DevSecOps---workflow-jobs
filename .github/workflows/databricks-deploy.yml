@@ -62,9 +62,11 @@ jobs:
           echo "==========================================================="
           
           REPO_NAME_LOWER=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-          DEPLOY_PATH="/Shared/projetos/${REPO_NAME_LOWER}/${{ inputs.environment }}"
           
-          # 2. Cria o arquivo JSON do payload para a pasta Shared
+          # CORREÇÃO: Adicionado o /files/ que o Databricks Asset Bundles cria nativamente
+          DEPLOY_PATH="/Shared/projetos/${REPO_NAME_LOWER}/${{ inputs.environment }}/files"
+          
+          # 2. Cria o arquivo JSON do payload apontando para a subpasta files
           cat <<EOF > smoke_test_payload.json
           {
             "run_name": "smoke-test-${REPO_NAME_LOWER}",
@@ -79,20 +81,18 @@ jobs:
           }
           EOF
           
-          # 3. Tenta rodar o teste salvando o resultado. O '|| true' impede o passo de quebrar a esteira imediatamente
+          # 3. Tenta rodar o teste salvando o resultado
           if databricks jobs submit --json @smoke_test_payload.json; then
             echo "==========================================================="
             echo "🎉 SMOKE TEST EXECUTADO COM SUCESSO!"
             echo "==========================================================="
           else
             echo "==========================================================="
-            echo "⚠️  AVISO DE GOVERNANÇA / PERMISSÃO DETECTADO"
+            echo "⚠️  AVISO DE GOVERNANÇA / EXECUÇÃO DETECTADO"
             echo "==========================================================="
-            echo "O deploy foi concluído com sucesso, mas o Smoke Test não pôde rodar."
-            echo "Motivo provável: O Service Principal 'databricks-github-actions-sp' não possui a permissão CAN_MANAGE na pasta '${DEPLOY_PATH}'."
-            echo "Para habilitar o teste automático, adicione essa permissão para o SP no console do Databricks ou via bundle.yml."
+            echo "O deploy foi concluído com sucesso, mas o Smoke Test falhou ou foi barrado."
+            echo "Verifique as permissões de CAN_MANAGE para o SP ou se o código do notebook possui erros."
             echo "==========================================================="
           fi
           
-          # Limpa o payload técnico do runner
           rm -f smoke_test_payload.json
