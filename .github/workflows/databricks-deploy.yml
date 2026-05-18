@@ -59,22 +59,25 @@ jobs:
           echo "🚀 Gerando payload e disparando Smoke Test isolado..."
           echo "==========================================================="
           
-          # Cria o arquivo JSON contendo a estrutura exata que a API do Databricks v0.299.1 exige
+          # CORREÇÃO: Força o nome do repositório a ficar totalmente em letras minúsculas (padrão do bundle)
+          REPO_NAME_LOWER=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          
+          # Cria o arquivo JSON apontando para o caminho correto em minúsculas
           cat <<EOF > smoke_test_payload.json
           {
-            "run_name": "smoke-test-${{ github.event.repository.name }}",
+            "run_name": "smoke-test-${REPO_NAME_LOWER}",
             "tasks": [
               {
                 "task_key": "smoke_test_notebook",
                 "notebook_task": {
-                  "notebook_path": "/Shared/projetos/${{ github.event.repository.name }}/${{ inputs.environment }}/notebooks/teste.py"
+                  "notebook_path": "/Shared/projetos/${REPO_NAME_LOWER}/${{ inputs.environment }}/notebooks/teste.py"
                 }
               }
             ]
           }
           EOF
           
-          # Executa apontando para o arquivo JSON e monitora a execução até o final (--wait)
+          # Executa apontando para o arquivo JSON e monitora
           databricks jobs submit --json @smoke_test_payload.json
           
           # Limpa o arquivo temporário do runner
