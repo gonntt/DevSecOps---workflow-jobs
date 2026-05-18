@@ -56,11 +56,18 @@ jobs:
           databricks bundle deploy -t ${{ inputs.environment }}
           
           echo "==========================================================="
-          echo "🚀 Buscando o caminho dinâmico do deploy para o Smoke Test..."
+          echo "🚀 Buscando o caminho dinâmico do deploy via Summary..."
           echo "==========================================================="
           
-          # A CLI possui um comando que diz exatamente qual é o root_path resolvido para o target atual
-          DEPLOY_PATH=$(databricks bundle validate -t ${{ inputs.environment }} --output json | jq -r '.target.workspace.root_path')
+          # O 'bundle summary' entrega os metadados do deploy atual. 
+          # Filtramos direto pela chave 'root_path' que a CLI acabou de usar para o upload.
+          DEPLOY_PATH=$(databricks bundle summary -t ${{ inputs.environment }} --output json | jq -r '.root_path')
+          
+          # Validação de segurança: se por acaso o jq falhar, usamos um fallback baseado no log do próprio deploy
+          if [ "$DEPLOY_PATH" = "null" ] || [ -z "$DEPLOY_PATH" ]; then
+            echo "⚠️ Caminho não encontrado no root_path principal. Tentando fallback do target..."
+            DEPLOY_PATH=$(databricks bundle summary -t ${{ inputs.environment }} --output json | jq -r '.target.workspace.root_path')
+          fi
           
           echo "📍 Caminho privado identificado: ${DEPLOY_PATH}"
           
