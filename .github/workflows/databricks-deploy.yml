@@ -56,24 +56,19 @@ jobs:
           databricks bundle deploy -t ${{ inputs.environment }}
           
           echo "==========================================================="
-          echo "🚀 Buscando o caminho dinâmico do deploy via Summary..."
+          echo "🚀 Construindo o caminho dinâmico via Governância de Identidade..."
           echo "==========================================================="
           
-          # O 'bundle summary' entrega os metadados do deploy atual. 
-          # Filtramos direto pela chave 'root_path' que a CLI acabou de usar para o upload.
-          DEPLOY_PATH=$(databricks bundle summary -t ${{ inputs.environment }} --output json | jq -r '.root_path')
-          
-          # Validação de segurança: se por acaso o jq falhar, usamos um fallback baseado no log do próprio deploy
-          if [ "$DEPLOY_PATH" = "null" ] || [ -z "$DEPLOY_PATH" ]; then
-            echo "⚠️ Caminho não encontrado no root_path principal. Tentando fallback do target..."
-            DEPLOY_PATH=$(databricks bundle summary -t ${{ inputs.environment }} --output json | jq -r '.target.workspace.root_path')
-          fi
-          
-          echo "📍 Caminho privado identificado: ${DEPLOY_PATH}"
-          
+          # Força o nome do repositório para minúsculas (exatamente como o bundle faz internamente)
           REPO_NAME_LOWER=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
           
-          # 2. Cria o JSON usando o caminho descoberto dinamicamente pela esteira
+          # Reconstrói o caminho exato baseado na regra do bundle.yml
+          # /Users/${workspace.current_user.userName}/projetos/${bundle.name}/${bundle.target}
+          DEPLOY_PATH="/Users/${DATABRICKS_CLIENT_ID}/projetos/${REPO_NAME_LOWER}/${{ inputs.environment }}"
+          
+          echo "📍 Caminho privado construído: ${DEPLOY_PATH}"
+          
+          # 2. Cria o JSON usando o caminho seguro e isolado
           cat <<EOF > smoke_test_payload.json
           {
             "run_name": "smoke-test-${REPO_NAME_LOWER}",
@@ -91,4 +86,5 @@ jobs:
           # 3. Executa o teste síncrono com permissão nativa de dono da pasta
           databricks jobs submit --json @smoke_test_payload.json
           
+          # Limpa o arquivo temporário do runner
           rm smoke_test_payload.json
