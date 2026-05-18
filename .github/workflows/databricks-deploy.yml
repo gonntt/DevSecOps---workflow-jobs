@@ -46,23 +46,27 @@ jobs:
       - name: Setup Databricks CLI
         uses: gonntt/devsecops---actions/.github/integrations/databricks@main
 
-      - name: Databricks Bundle Deploy & Smoke Test
+      - name: Databricks Bundle Deploy & Smoke Test (Governança Total)
         env:
           DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
           DATABRICKS_CLIENT_ID: ${{ steps.kv-secrets.outputs[inputs.secret_client_id_name] }}
           DATABRICKS_CLIENT_SECRET: ${{ steps.kv-secrets.outputs[inputs.secret_client_secret_name] }}
         run: |
-          # 1. Executa o deploy do bundle mapeado
+          # 1. Executa o deploy do bundle
           databricks bundle deploy -t ${{ inputs.environment }}
           
           echo "==========================================================="
-          echo "🚀 Gerando payload e disparando Smoke Test isolado..."
+          echo "🚀 Buscando o caminho dinâmico do deploy para o Smoke Test..."
           echo "==========================================================="
           
-          # CORREÇÃO: Força o nome do repositório a ficar totalmente em letras minúsculas (padrão do bundle)
+          # A CLI possui um comando que diz exatamente qual é o root_path resolvido para o target atual
+          DEPLOY_PATH=$(databricks bundle validate -t ${{ inputs.environment }} --output json | jq -r '.target.workspace.root_path')
+          
+          echo "📍 Caminho privado identificado: ${DEPLOY_PATH}"
+          
           REPO_NAME_LOWER=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
           
-          # Cria o arquivo JSON apontando para o caminho correto em minúsculas
+          # 2. Cria o JSON usando o caminho descoberto dinamicamente pela esteira
           cat <<EOF > smoke_test_payload.json
           {
             "run_name": "smoke-test-${REPO_NAME_LOWER}",
@@ -70,15 +74,14 @@ jobs:
               {
                 "task_key": "smoke_test_notebook",
                 "notebook_task": {
-                  "notebook_path": "/Shared/projetos/${REPO_NAME_LOWER}/${{ inputs.environment }}/notebooks/teste.py"
+                  "notebook_path": "${DEPLOY_PATH}/notebooks/teste.py"
                 }
               }
             ]
           }
           EOF
           
-          # Executa apontando para o arquivo JSON e monitora
+          # 3. Executa o teste síncrono com permissão nativa de dono da pasta
           databricks jobs submit --json @smoke_test_payload.json
           
-          # Limpa o arquivo temporário do runner
           rm smoke_test_payload.json
