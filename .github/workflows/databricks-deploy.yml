@@ -63,10 +63,13 @@ jobs:
           
           REPO_NAME_LOWER=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
           
-          # CORREÇÃO: Adicionado o /files/ que o Databricks Asset Bundles cria nativamente
+          # AJUSTE: Mapeando o caminho absoluto sem o ".py", pois o Databricks o transforma em Notebook nativo
           DEPLOY_PATH="/Shared/projetos/${REPO_NAME_LOWER}/${{ inputs.environment }}/files"
+          NOTEBOOK_TARGET="${DEPLOY_PATH}/notebooks/teste"
           
-          # 2. Cria o arquivo JSON do payload apontando para a subpasta files
+          echo "🎯 Tentando executar o notebook em: ${NOTEBOOK_TARGET}"
+          
+          # 2. Cria o arquivo JSON do payload apontando para o notebook limpo
           cat <<EOF > smoke_test_payload.json
           {
             "run_name": "smoke-test-${REPO_NAME_LOWER}",
@@ -74,7 +77,7 @@ jobs:
               {
                 "task_key": "smoke_test_notebook",
                 "notebook_task": {
-                  "notebook_path": "${DEPLOY_PATH}/notebooks/teste.py"
+                  "notebook_path": "${NOTEBOOK_TARGET}"
                 }
               }
             ]
@@ -91,7 +94,7 @@ jobs:
             echo "⚠️  AVISO DE GOVERNANÇA / EXECUÇÃO DETECTADO"
             echo "==========================================================="
             echo "O deploy foi concluído com sucesso, mas o Smoke Test falhou ou foi barrado."
-            echo "Verifique as permissões de CAN_MANAGE para o SP ou se o código do notebook possui erros."
+            echo "Verifique se o arquivo existe sem extensão ou se o código interno possui erros."
             echo "==========================================================="
           fi
           
