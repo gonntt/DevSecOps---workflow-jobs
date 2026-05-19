@@ -79,18 +79,17 @@ jobs:
           }
           EOF
           
-          # 2. Dispara o job e captura o JSON de resposta contendo o run_id
-          # Usamos o --no-wait para capturar o ID imediatamente e gerenciar o monitoramento via CLI
-          RUN_INFO=$(databricks jobs submit --json @smoke_test_payload.json --output json)
+          # CORREÇÃO: Adicionada a flag --no-wait para que o comando não quebre a esteira ao disparar
+          RUN_INFO=$(databricks jobs submit --json @smoke_test_payload.json --no-wait --output json)
           RUN_ID=$(echo "$RUN_INFO" | jq -r '.run_id')
           
           echo "📍 Smoke Test iniciado no Databricks. Run ID: ${RUN_ID}"
           echo "⏳ Aguardando a execução do notebook finalizar..."
           
-          # 3. Monitora a execução até o fim
+          # 3. Monitora a execução até o fim. O '|| true' garante que se o teste falhar, o bash segue em frente
           databricks runs wait ${RUN_ID} --timeout 10m || true
           
-          # 4. Captura o status final da execução
+          # 4. Captura o status final da execução do job
           RUN_STATUS=$(databricks runs get ${RUN_ID} --output json | jq -r '.state.result_state')
           
           if [ "$RUN_STATUS" = "SUCCESS" ]; then
@@ -102,8 +101,16 @@ jobs:
             echo "❌ SMOKE TEST FALHOU! TRAZENDO OS LOGS DO SPARK..."
             echo "==========================================================="
             
-            # Comando mágico: extrai o output/traceback do notebook e exibe na esteira
-            databricks runs get-output ${RUN_ID} --output json | jq -r '.notebook_output.error_summary // .state.life_cycle_state'
+            # Tenta buscar o sumário do erro gerado na célula do Spark
+            ERROR_MSG=$(databricks runs get-output ${RUN_ID} --output json | jq -r '.notebook_output.error_summary // empty')
+            
+            if [ -z "$ERROR_MSG" ]; then
+               echo "⚠️ Não foi possível extrair o sumário de erro direto do notebook."
+               echo "Verifique o status do ciclo de vida: $(databricks runs get ${RUN_ID} --output json | jq -r '.state.life_cycle_state')"
+            else
+               echo "📝 Detalhes do Erro do Spark:"
+               echo "$ERROR_MSG"
+            fi
             
             echo "-----------------------------------------------------------"
             echo "⚠️  AVISO: O deploy foi feito, mas o código do notebook quebrou."
