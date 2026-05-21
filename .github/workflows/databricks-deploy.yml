@@ -63,16 +63,16 @@ jobs:
           # Extrai os metadados e as flags customizadas do desenvolvedor
           BUNDLE_JSON=$(databricks bundle validate -t ${{ inputs.environment }} --output json)
           
-          # AJUSTE CIRÚRGICO: Adicionado o .value para extrair a string limpa do JSON
+          # Captura precisa dos valores
           ENABLE_TEST=$(echo "$BUNDLE_JSON" | jq -r '.variables.enable_smoke_test.value // "true"')
           ENABLE_ROLLBACK=$(echo "$BUNDLE_JSON" | jq -r '.variables.enable_rollback.value // "false"')
-          ROOT_PATH=$(echo "$BUNDLE_JSON" | jq -r '.target.workspace.root_path')
+          ROOT_PATH=$(echo "$BUNDLE_JSON" | jq -r --arg tg "${{ inputs.environment }}" '.targets[$tg].workspace.root_path // .targets[].workspace.root_path')
           RELATIVE_NOTEBOOK=$(echo "$BUNDLE_JSON" | jq -r '.variables.smoke_test_path.value // "./notebooks/teste.py"')
           
           echo "⚙️ Executar Smoke Test? [ ${ENABLE_TEST} ]"
           echo "⚙️ Executar Rollback Automático em caso de falha? [ ${ENABLE_ROLLBACK} ]"
+          echo "📍 Root Path extraído: [ ${ROOT_PATH} ]"
           
-          # Agora o teste de string do Bash vai funcionar perfeitamente
           if [ "$ENABLE_TEST" != "true" ]; then
              echo "ℹ️ Smoke Test desativado via manifesto pelo desenvolvedor. Finalizando pipeline com sucesso."
              exit 0
@@ -82,9 +82,11 @@ jobs:
           echo "🚀 Disparando Smoke Test condicional na pasta Shared..."
           echo "==========================================================="
           
-          # Monta o caminho absoluto dinâmico limpando a extensão .py para a API de Jobs
+          # Monta o caminho absoluto dinâmico limpando a extensão para a API de Jobs
           RELATIVE_NOTEBOOK_CLEAN=$(echo "$RELATIVE_NOTEBOOK" | sed 's|^\./||' | sed 's|\.py$||' | sed 's|\.ipynb$||')
           NOTEBOOK_TARGET="${ROOT_PATH}/files/${RELATIVE_NOTEBOOK_CLEAN}"
+          
+          echo "🎯 Caminho alvo do Notebook: ${NOTEBOOK_TARGET}"
           
           REPO_NAME_LOWER=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
           cat <<EOF > smoke_test_payload.json
@@ -149,7 +151,6 @@ jobs:
           echo "❌ SMOKE TEST FALHOU NO AMBIENTE DO DATABRICKS!"
           echo "==========================================================="
           
-          # Coleta e expõe o erro do Spark na tela
           TASK_RUN_ID=$(echo "$RUN_INFO_FINAL" | jq -r '.tasks[0].run_id // empty')
           if [ -n "$TASK_RUN_ID" ] && [ "$TASK_RUN_ID" != "null" ]; then
              databricks jobs get-run-output ${TASK_RUN_ID} --output json > output_response.json
@@ -168,17 +169,15 @@ jobs:
              echo "🚨 CRÍTICO: Mecanismo de Rollback Automático ATIVADO pelo manifesto."
              echo "⚠️ Removendo os arquivos implantados para limpar o ambiente..."
              
-             # Executa o destroy limpando a pasta que acabou de subir de forma forçada
              databricks bundle destroy -t ${{ inputs.environment }} --auto-approve
              
              echo "✅ Rollback executado! O ambiente foi restaurado/limpo."
              echo "❌ Quebrando a esteira para sinalizar falha no código."
-             exit 1 # Deixa a esteira VERMELHA (Bloqueia o deploy)
+             exit 1 
           else
              echo "==========================================================="
              echo "⚠️ AVISO DE GOVERNANÇA: O deploy foi mantido no Databricks."
              echo "Mecanismo de Rollback desativado (enable_rollback: false)."
-             echo "O desenvolvedor deve analisar o erro acima e aplicar a correção."
              echo "==========================================================="
-             exit 0 # Mantém a esteira VERDE (Resiliente)
+             exit 0 
           fi
