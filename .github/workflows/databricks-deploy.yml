@@ -63,15 +63,16 @@ jobs:
           # Extrai os metadados e as flags customizadas do desenvolvedor
           BUNDLE_JSON=$(databricks bundle validate -t ${{ inputs.environment }} --output json)
           
-          ENABLE_TEST=$(echo "$BUNDLE_JSON" | jq -r '.variables.enable_smoke_test // "true"')
-          ENABLE_ROLLBACK=$(echo "$BUNDLE_JSON" | jq -r '.variables.enable_rollback // "false"')
+          # AJUSTE CIRÚRGICO: Adicionado o .value para extrair a string limpa do JSON
+          ENABLE_TEST=$(echo "$BUNDLE_JSON" | jq -r '.variables.enable_smoke_test.value // "true"')
+          ENABLE_ROLLBACK=$(echo "$BUNDLE_JSON" | jq -r '.variables.enable_rollback.value // "false"')
           ROOT_PATH=$(echo "$BUNDLE_JSON" | jq -r '.target.workspace.root_path')
-          RELATIVE_NOTEBOOK=$(echo "$BUNDLE_JSON" | jq -r '.variables.smoke_test_path')
+          RELATIVE_NOTEBOOK=$(echo "$BUNDLE_JSON" | jq -r '.variables.smoke_test_path.value // "./notebooks/teste.py"')
           
           echo "⚙️ Executar Smoke Test? [ ${ENABLE_TEST} ]"
           echo "⚙️ Executar Rollback Automático em caso de falha? [ ${ENABLE_ROLLBACK} ]"
           
-          # Se o desenvolvedor desligou o teste no manifesto, encerra a esteira com sucesso aqui
+          # Agora o teste de string do Bash vai funcionar perfeitamente
           if [ "$ENABLE_TEST" != "true" ]; then
              echo "ℹ️ Smoke Test desativado via manifesto pelo desenvolvedor. Finalizando pipeline com sucesso."
              exit 0
