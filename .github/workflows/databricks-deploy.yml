@@ -81,11 +81,9 @@ jobs:
           # 2. Dispara o job salvando a resposta direto em um arquivo físico
           databricks jobs submit --json @smoke_test_payload.json --no-wait --output json > run_response.json
           
-          # Extrai o run_id
           RUN_ID=$(jq -r '.run_id // empty' run_response.json)
           rm -f run_response.json
           
-          # Validação de ID
           if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
             echo "⚠️ Não foi possível capturar o ID de execução do Databricks."
             echo "O deploy foi concluído, mas o monitoramento do log foi pulado."
@@ -96,13 +94,12 @@ jobs:
           echo "📍 Smoke Test iniciado no Databricks. Run ID: ${RUN_ID}"
           echo "⏳ Monitorando a execução do notebook diretamente..."
           
-          # 3. Loop de Espera (Polling) - ID passado diretamente como argumento posicional
+          # 3. Loop de Espera (Polling)
           TIMEOUT_MINUTES=5
           MAX_ATTEMPTS=$((TIMEOUT_MINUTES * 6))
           ATTEMPT=0
           
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            # CORREÇÃO: ID passado direto após o comando get-run
             RUN_INFO_JSON=$(databricks jobs get-run ${RUN_ID} --output json)
             LIFE_CYCLE=$(echo "$RUN_INFO_JSON" | jq -r '.state.life_cycle_state // empty')
             
@@ -116,8 +113,9 @@ jobs:
             ATTEMPT=$((ATTEMPT + 1))
           done
           
-          # 4. Captura o veredito final do resultado - ID passado direto
-          RUN_STATUS=$(databricks jobs get-run ${RUN_ID} --output json | jq -r '.state.result_state // empty')
+          # 4. Captura o veredito final do resultado
+          RUN_INFO_FINAL=$(databricks jobs get-run ${RUN_ID} --output json)
+          RUN_STATUS=$(echo "$RUN_INFO_FINAL" | jq -r '.state.result_state // empty')
           
           if [ "$RUN_STATUS" = "SUCCESS" ]; then
             echo "==========================================================="
@@ -128,15 +126,19 @@ jobs:
             echo "❌ SMOKE TEST FALHOU! TRAZENDO OS LOGS DO SPARK..."
             echo "==========================================================="
             
-            # CORREÇÃO: ID passado direto após o comando get-run-output
-            databricks jobs get-run-output ${RUN_ID} --output json > output_response.json
+            # SOLUÇÃO: Extrai o run_id específico da TASK interna (filha) para evitar o erro de multiplas tasks
+            TASK_RUN_ID=$(echo "$RUN_INFO_FINAL" | jq -r '.tasks[0].run_id // empty')
             
-            ERROR_MSG=$(jq -r '.notebook_output.error_summary // empty' output_response.json)
-            rm -f output_response.json
+            if [ -n "$TASK_RUN_ID" ] && [ "$TASK_RUN_ID" != "null" ]; then
+               # Faz a busca do log apontando para o ID da Task
+               databricks jobs get-run-output ${TASK_RUN_ID} --output json > output_response.json
+               ERROR_MSG=$(jq -r '.notebook_output.error_summary // empty' output_response.json)
+               rm -f output_response.json
+            fi
             
             if [ -z "$ERROR_MSG" ] || [ "$ERROR_MSG" = "null" ]; then
-               echo "📝 Status final do ciclo de vida: $(databricks jobs get-run ${RUN_ID} --output json | jq -r '.state.life_cycle_state')"
-               echo "⚠️ O notebook falhou antes de iniciar a execução das células."
+               echo "📝 Status final do ciclo de vida: $(echo "$RUN_INFO_FINAL" | jq -r '.state.life_cycle_state')"
+               echo "⚠️ O notebook falhou na infraestrutura ou permissão do cluster."
             else
                echo "📝 Detalhes do Erro do Spark coletados:"
                echo "-----------------------------------------------------------"
