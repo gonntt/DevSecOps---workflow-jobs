@@ -35,7 +35,6 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-  
       - name: Get Secrets from Key Vault
         uses: Azure/get-keyvault-secrets@v1
         with:
@@ -79,14 +78,14 @@ jobs:
           }
           EOF
           
-          # 2. Dispara o job salvando a resposta direto em um arquivo físico para não perder o output
+          # 2. Dispara o job salvando a resposta direto em um arquivo físico
           databricks jobs submit --json @smoke_test_payload.json --no-wait --output json > run_response.json
           
-          # Extrai o run_id garantindo que o arquivo seja lido corretamente
+          # Extrai o run_id
           RUN_ID=$(jq -r '.run_id // empty' run_response.json)
           rm -f run_response.json
           
-          # Validação: Se não conseguiu capturar o RUN_ID, avisa e encerra com sucesso
+          # Validação de ID
           if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
             echo "⚠️ Não foi possível capturar o ID de execução do Databricks."
             echo "O deploy foi concluído, mas o monitoramento do log foi pulado."
@@ -97,11 +96,11 @@ jobs:
           echo "📍 Smoke Test iniciado no Databricks. Run ID: ${RUN_ID}"
           echo "⏳ Aguardando a execução do notebook finalizar..."
           
-          # 3. Monitora a execução até o fim (ignora erro de saída com || true)
-          databricks runs wait ${RUN_ID} --timeout 10m || true
+          # CORREÇÃO: Adicionado 'jobs' antes de 'runs wait'
+          databricks jobs runs wait ${RUN_ID} --timeout 10m || true
           
-          # 4. Captura o status final da execução do job
-          RUN_STATUS=$(databricks runs get ${RUN_ID} --output json | jq -r '.state.result_state // empty')
+          # CORREÇÃO: Adicionado 'jobs' antes de 'runs get'
+          RUN_STATUS=$(databricks jobs runs get ${RUN_ID} --output json | jq -r '.state.result_state // empty')
           
           if [ "$RUN_STATUS" = "SUCCESS" ]; then
             echo "==========================================================="
@@ -112,14 +111,15 @@ jobs:
             echo "❌ SMOKE TEST FALHOU! TRAZENDO OS LOGS DO SPARK..."
             echo "==========================================================="
             
-            # Força a CLI a trazer o output bruto do notebook em formato de texto para garantir a leitura
-            databricks runs get-output ${RUN_ID} --output json > output_response.json
+            # CORREÇÃO: Adicionado 'jobs' antes de 'runs get-output'
+            databricks jobs runs get-output ${RUN_ID} --output json > output_response.json
             
             ERROR_MSG=$(jq -r '.notebook_output.error_summary // empty' output_response.json)
             rm -f output_response.json
             
             if [ -z "$ERROR_MSG" ] || [ "$ERROR_MSG" = "null" ]; then
-               echo "📝 Status do ciclo de vida: $(databricks runs get ${RUN_ID} --output json | jq -r '.state.life_cycle_state')"
+               # CORREÇÃO: Adicionado 'jobs' antes de 'runs get'
+               echo "📝 Status do ciclo de vida: $(databricks jobs runs get ${RUN_ID} --output json | jq -r '.state.life_cycle_state')"
                echo "⚠️ O notebook falhou antes de iniciar a execução das células (erro de cluster ou permissão interna)."
             else
                echo "📝 Detalhes do Erro do Spark:"
