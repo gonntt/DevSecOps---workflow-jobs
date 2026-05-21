@@ -45,7 +45,7 @@ jobs:
       - name: Setup Databricks CLI
         uses: gonntt/devsecops---actions/.github/integrations/databricks@main
 
-      - name: Databricks Bundle Deploy & Smoke Test Resiliente
+      - name: Databricks Bundle Deploy & Smoke Test Dinâmico com Rollback
         env:
           DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
           DATABRICKS_CLIENT_ID: ${{ steps.kv-secrets.outputs[inputs.secret_client_id_name] }}
@@ -57,13 +57,35 @@ jobs:
           echo "✅ Deployment complete com sucesso!"
           
           echo "==========================================================="
+          echo "🔍 Lendo configurações de governança do manifesto do dev..."
+          echo "==========================================================="
+          
+          # Extrai os metadados e as flags customizadas do desenvolvedor
+          BUNDLE_JSON=$(databricks bundle validate -t ${{ inputs.environment }} --output json)
+          
+          ENABLE_TEST=$(echo "$BUNDLE_JSON" | jq -r '.variables.enable_smoke_test // "true"')
+          ENABLE_ROLLBACK=$(echo "$BUNDLE_JSON" | jq -r '.variables.enable_rollback // "false"')
+          ROOT_PATH=$(echo "$BUNDLE_JSON" | jq -r '.target.workspace.root_path')
+          RELATIVE_NOTEBOOK=$(echo "$BUNDLE_JSON" | jq -r '.variables.smoke_test_path')
+          
+          echo "⚙️ Executar Smoke Test? [ ${ENABLE_TEST} ]"
+          echo "⚙️ Executar Rollback Automático em caso de falha? [ ${ENABLE_ROLLBACK} ]"
+          
+          # Se o desenvolvedor desligou o teste no manifesto, encerra a esteira com sucesso aqui
+          if [ "$ENABLE_TEST" != "true" ]; then
+             echo "ℹ️ Smoke Test desativado via manifesto pelo desenvolvedor. Finalizando pipeline com sucesso."
+             exit 0
+          fi
+          
+          echo "==========================================================="
           echo "🚀 Disparando Smoke Test condicional na pasta Shared..."
           echo "==========================================================="
           
-          REPO_NAME_LOWER=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-          DEPLOY_PATH="/Shared/projetos/${REPO_NAME_LOWER}/${{ inputs.environment }}/files"
-          NOTEBOOK_TARGET="${DEPLOY_PATH}/notebooks/teste"
+          # Monta o caminho absoluto dinâmico limpando a extensão .py para a API de Jobs
+          RELATIVE_NOTEBOOK_CLEAN=$(echo "$RELATIVE_NOTEBOOK" | sed 's|^\./||' | sed 's|\.py$||' | sed 's|\.ipynb$||')
+          NOTEBOOK_TARGET="${ROOT_PATH}/files/${RELATIVE_NOTEBOOK_CLEAN}"
           
+          REPO_NAME_LOWER=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
           cat <<EOF > smoke_test_payload.json
           {
             "run_name": "smoke-test-${REPO_NAME_LOWER}",
@@ -78,15 +100,13 @@ jobs:
           }
           EOF
           
-          # 2. Dispara o job salvando a resposta direto em um arquivo físico
+          # Dispara o job em modo asgyn/no-wait
           databricks jobs submit --json @smoke_test_payload.json --no-wait --output json > run_response.json
-          
           RUN_ID=$(jq -r '.run_id // empty' run_response.json)
           rm -f run_response.json
           
           if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-            echo "⚠️ Não foi possível capturar o ID de execução do Databricks."
-            echo "O deploy foi concluído, mas o monitoramento do log foi pulado."
+            echo "⚠️ Não foi possível capturar o ID de execução. O monitoramento foi pulado."
             rm -f smoke_test_payload.json
             exit 0
           fi
@@ -94,61 +114,70 @@ jobs:
           echo "📍 Smoke Test iniciado no Databricks. Run ID: ${RUN_ID}"
           echo "⏳ Monitorando a execução do notebook diretamente..."
           
-          # 3. Loop de Espera (Polling)
+          # Loop de polling compatível com a CLI v0.299.1
           TIMEOUT_MINUTES=5
           MAX_ATTEMPTS=$((TIMEOUT_MINUTES * 6))
           ATTEMPT=0
-          
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
             RUN_INFO_JSON=$(databricks jobs get-run ${RUN_ID} --output json)
             LIFE_CYCLE=$(echo "$RUN_INFO_JSON" | jq -r '.state.life_cycle_state // empty')
-            
             echo "🔄 Estado atual do Job: ${LIFE_CYCLE}"
-            
             if [ "$LIFE_CYCLE" = "TERMINATED" ] || [ "$LIFE_CYCLE" = "SKIPPED" ] || [ "$LIFE_CYCLE" = "INTERNAL_ERROR" ]; then
                break
             fi
-            
             sleep 10
             ATTEMPT=$((ATTEMPT + 1))
           done
           
-          # 4. Captura o veredito final do resultado
+          # Veredito final do teste
           RUN_INFO_FINAL=$(databricks jobs get-run ${RUN_ID} --output json)
           RUN_STATUS=$(echo "$RUN_INFO_FINAL" | jq -r '.state.result_state // empty')
+          rm -f smoke_test_payload.json
           
           if [ "$RUN_STATUS" = "SUCCESS" ]; then
             echo "==========================================================="
             echo "🎉 SMOKE TEST EXECUTADO COM SUCESSO NO DATABRICKS!"
             echo "==========================================================="
-          else
-            echo "==========================================================="
-            echo "❌ SMOKE TEST FALHOU! TRAZENDO OS LOGS DO SPARK..."
-            echo "==========================================================="
-            
-            # SOLUÇÃO: Extrai o run_id específico da TASK interna (filha) para evitar o erro de multiplas tasks
-            TASK_RUN_ID=$(echo "$RUN_INFO_FINAL" | jq -r '.tasks[0].run_id // empty')
-            
-            if [ -n "$TASK_RUN_ID" ] && [ "$TASK_RUN_ID" != "null" ]; then
-               # Faz a busca do log apontando para o ID da Task
-               databricks jobs get-run-output ${TASK_RUN_ID} --output json > output_response.json
-               ERROR_MSG=$(jq -r '.notebook_output.error_summary // empty' output_response.json)
-               rm -f output_response.json
-            fi
-            
-            if [ -z "$ERROR_MSG" ] || [ "$ERROR_MSG" = "null" ]; then
-               echo "📝 Status final do ciclo de vida: $(echo "$RUN_INFO_FINAL" | jq -r '.state.life_cycle_state')"
-               echo "⚠️ O notebook falhou na infraestrutura ou permissão do cluster."
-            else
-               echo "📝 Detalhes do Erro do Spark coletados:"
-               echo "-----------------------------------------------------------"
-               echo "$ERROR_MSG"
-            fi
-            
-            echo "-----------------------------------------------------------"
-            echo "⚠️  AVISO: O deploy foi feito, mas o código do notebook quebrou."
-            echo "Verifique o log acima para corrigir a lógica do Python."
-            echo "==========================================================="
+            exit 0
           fi
           
-          rm -f smoke_test_payload.json
+          # -----------------------------------------------------------
+          # TRATAMENTO DE FALHA DO TESTE
+          # -----------------------------------------------------------
+          echo "==========================================================="
+          echo "❌ SMOKE TEST FALHOU NO AMBIENTE DO DATABRICKS!"
+          echo "==========================================================="
+          
+          # Coleta e expõe o erro do Spark na tela
+          TASK_RUN_ID=$(echo "$RUN_INFO_FINAL" | jq -r '.tasks[0].run_id // empty')
+          if [ -n "$TASK_RUN_ID" ] && [ "$TASK_RUN_ID" != "null" ]; then
+             databricks jobs get-run-output ${TASK_RUN_ID} --output json > output_response.json
+             ERROR_MSG=$(jq -r '.notebook_output.error_summary // empty' output_response.json)
+             rm -f output_response.json
+             if [ -n "$ERROR_MSG" ] && [ "$ERROR_MSG" != "null" ]; then
+                echo "📝 Detalhes do Erro do Spark coletados:"
+                echo "-----------------------------------------------------------"
+                echo "$ERROR_MSG"
+                echo "-----------------------------------------------------------"
+             fi
+          fi
+          
+          # DECISÃO DO ROLLBACK AUTOMÁTICO
+          if [ "$ENABLE_ROLLBACK" = "true" ]; then
+             echo "🚨 CRÍTICO: Mecanismo de Rollback Automático ATIVADO pelo manifesto."
+             echo "⚠️ Removendo os arquivos implantados para limpar o ambiente..."
+             
+             # Executa o destroy limpando a pasta que acabou de subir de forma forçada
+             databricks bundle destroy -t ${{ inputs.environment }} --auto-approve
+             
+             echo "✅ Rollback executado! O ambiente foi restaurado/limpo."
+             echo "❌ Quebrando a esteira para sinalizar falha no código."
+             exit 1 # Deixa a esteira VERMELHA (Bloqueia o deploy)
+          else
+             echo "==========================================================="
+             echo "⚠️ AVISO DE GOVERNANÇA: O deploy foi mantido no Databricks."
+             echo "Mecanismo de Rollback desativado (enable_rollback: false)."
+             echo "O desenvolvedor deve analisar o erro acima e aplicar a correção."
+             echo "==========================================================="
+             exit 0 # Mantém a esteira VERDE (Resiliente)
+          fi
