@@ -1,4 +1,51 @@
-- name: Databricks Bundle Deploy & Smoke Test Resiliente
+name: Job - Databricks Deploy via Key Vault (OIDC)
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      keyvault_name:
+        required: true
+        type: string
+      secret_client_id_name:
+        required: true
+        type: string
+      secret_client_secret_name:
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get Secrets from Key Vault
+        uses: Azure/get-keyvault-secrets@v1
+        with:
+          keyvault: ${{ inputs.keyvault_name }}
+          secrets: '${{ inputs.secret_client_id_name }}, ${{ inputs.secret_client_secret_name }}'
+        id: kv-secrets
+
+      - name: Setup Databricks CLI
+        uses: gonntt/devsecops---actions/.github/integrations/databricks@main
+
+      - name: Databricks Bundle Deploy & Smoke Test Resiliente
         env:
           DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
           DATABRICKS_CLIENT_ID: ${{ steps.kv-secrets.outputs[inputs.secret_client_id_name] }}
